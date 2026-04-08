@@ -13,11 +13,12 @@ if errorlevel 1 (
     echo [ERROR] Python is not installed or not in PATH.
     echo         Download it from https://www.python.org/downloads/
     echo         IMPORTANT: Check "Add Python to PATH" during install.
+    echo         After installing, RESTART your computer then try again.
     echo.
     pause
     exit /b 1
 )
-echo [OK] Python found.
+for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo [OK] %%i found.
 
 :: Check for Node
 node --version >nul 2>&1
@@ -25,11 +26,24 @@ if errorlevel 1 (
     echo [ERROR] Node.js is not installed or not in PATH.
     echo         Download it from https://nodejs.org/
     echo         The LTS version is recommended.
+    echo         After installing, RESTART your computer then try again.
     echo.
     pause
     exit /b 1
 )
-echo [OK] Node.js found.
+for /f "tokens=*" %%i in ('node --version 2^>^&1') do echo [OK] Node.js %%i found.
+
+:: Check for npm
+call npm --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] npm is not installed or not in PATH.
+    echo         It should come with Node.js. Try reinstalling Node.js
+    echo         and RESTART your computer.
+    echo.
+    pause
+    exit /b 1
+)
+for /f "tokens=*" %%i in ('npm --version 2^>^&1') do echo [OK] npm %%i found.
 
 :: Backend setup
 echo.
@@ -39,12 +53,18 @@ cd /d "%PROJECT%backend"
 if not exist ".venv" (
     echo Creating Python virtual environment...
     python -m venv .venv
+    if errorlevel 1 (
+        echo [ERROR] Failed to create Python virtual environment.
+        pause
+        exit /b 1
+    )
 )
 
 call .venv\Scripts\activate
 echo Installing Python dependencies (this may take a minute)...
-pip install -r requirements.txt --quiet
+pip install -r requirements.txt
 if errorlevel 1 (
+    echo.
     echo [ERROR] Failed to install Python dependencies.
     pause
     exit /b 1
@@ -67,8 +87,9 @@ echo --- Setting up frontend ---
 cd /d "%PROJECT%frontend"
 
 echo Installing Node dependencies (this may take a minute)...
-call npm install --silent
+call npm install
 if errorlevel 1 (
+    echo.
     echo [ERROR] Failed to install Node dependencies.
     pause
     exit /b 1
