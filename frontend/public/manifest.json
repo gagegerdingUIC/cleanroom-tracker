@@ -1,0 +1,8 @@
+{
+  "name": "Cleanroom Tracker",
+  "short_name": "Cleanroom",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e40af"
+}
