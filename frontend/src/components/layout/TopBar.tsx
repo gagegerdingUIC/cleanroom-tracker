@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { PanelRightOpen, PanelRightClose, Download } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
+import bearBadge from "../../assets/bear-badge.svg";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -28,8 +29,16 @@ export default function TopBar() {
 
   return (
     <nav className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-4 shrink-0">
-      <Link to="/wafers" className="font-semibold text-gray-900 mr-2">
-        Cleanroom Tracker
+      <Link
+        to="/wafers"
+        className="mr-2 flex items-center gap-3 font-semibold text-gray-900"
+      >
+        <img
+          src={bearBadge}
+          alt="Bear mascot"
+          className="h-10 w-10 rounded-xl border border-amber-200 bg-amber-50 p-1 shadow-sm"
+        />
+        <span>Cleanroom Tracker</span>
       </Link>
       <Link
         to="/recipes"
