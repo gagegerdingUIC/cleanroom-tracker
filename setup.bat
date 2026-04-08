@@ -15,7 +15,8 @@ if errorlevel 1 (
     echo         IMPORTANT: Check "Add Python to PATH" during install.
     echo         After installing, RESTART your computer then try again.
     echo.
-    goto :done
+    pause
+    exit
 )
 for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo [OK] %%i found.
 
@@ -27,7 +28,8 @@ if errorlevel 1 (
     echo         The LTS version is recommended.
     echo         After installing, RESTART your computer then try again.
     echo.
-    goto :done
+    pause
+    exit
 )
 for /f "tokens=*" %%i in ('node --version 2^>^&1') do echo [OK] Node.js %%i found.
 
@@ -38,7 +40,8 @@ if errorlevel 1 (
     echo         It should come with Node.js. Try reinstalling Node.js
     echo         and RESTART your computer.
     echo.
-    goto :done
+    pause
+    exit
 )
 for /f "tokens=*" %%i in ('npm --version 2^>^&1') do echo [OK] npm %%i found.
 
@@ -52,7 +55,8 @@ if not exist ".venv" (
     python -m venv .venv
     if errorlevel 1 (
         echo [ERROR] Failed to create Python virtual environment.
-        goto :done
+        pause
+        exit
     )
 )
 
@@ -62,7 +66,8 @@ pip install -r requirements.txt
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to install Python dependencies.
-    goto :done
+    pause
+    exit
 )
 echo [OK] Backend dependencies installed.
 
@@ -86,7 +91,8 @@ cmd /c "npm install"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to install Node dependencies.
-    goto :done
+    pause
+    exit
 )
 echo [OK] Frontend dependencies installed.
 
@@ -97,8 +103,6 @@ echo   Setup complete!
 echo.
 echo   To start the app, double-click: start.bat
 echo ============================================
-
-:done
 echo.
 echo Press any key to close this window...
 pause >nul
