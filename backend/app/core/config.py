@@ -6,20 +6,27 @@ In phase 1, sensible defaults cover the single-user local setup.
 In phase 2, swap DATABASE_URL to PostgreSQL and set a real SECRET_KEY.
 """
 
+import os
 import sys
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+APP_VERSION = "0.2.0"
+GITHUB_REPO = "gagegerdingUIC/cleanroom-tracker"
+
 
 def _get_base_dir() -> Path:
     """Return the directory for user data (DB, storage).
 
-    Bundled exe: directory containing the .exe.
+    Bundled exe: %APPDATA%/CleanroomTracker/ (persists across updates).
     Dev mode: current working directory.
     """
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        appdata = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
+        data_dir = Path(appdata) / "CleanroomTracker"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
     return Path.cwd()
 
 

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
+from app.core.config import settings, APP_VERSION, GITHUB_REPO
 from app.core.database import engine
 from app.models import Base  # imports all models, registers metadata
 
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     description="Cleanroom process tracking for nanofabrication workflows.",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -60,6 +60,42 @@ app.include_router(carriers_router)
 @app.get("/health")
 def health_check():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/api/v1/version")
+def get_version():
+    return {"version": APP_VERSION}
+
+
+@app.get("/api/v1/check-update")
+async def check_update():
+    """Check GitHub for a newer release."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            latest = data["tag_name"].lstrip("v")
+            download_url = data.get("html_url", "")
+            return {
+                "current": APP_VERSION,
+                "latest": latest,
+                "update_available": latest != APP_VERSION,
+                "download_url": download_url,
+            }
+    except Exception:
+        return {
+            "current": APP_VERSION,
+            "latest": None,
+            "update_available": False,
+            "download_url": "",
+        }
 
 
 # --- Serve bundled frontend (only when the built files exist) ---
