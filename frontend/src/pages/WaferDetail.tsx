@@ -129,7 +129,7 @@ export default function WaferDetail() {
     try {
       const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(editForm)) {
-        if (value !== (wafer as Record<string, unknown>)[key]) {
+        if (value !== (wafer as unknown as Record<string, unknown>)[key]) {
           payload[key] = value === "" ? null : value;
         }
       }

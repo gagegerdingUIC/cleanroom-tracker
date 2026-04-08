@@ -516,7 +516,6 @@ export default function LithographyQuickLog() {
     "text-xs text-blue-600 hover:text-blue-800 font-medium mt-2";
   const removeBtnClass =
     "text-xs text-red-500 hover:text-red-700 font-medium";
-  const timeLabel = "text-xs text-gray-400 italic";
 
   return (
     <div className="max-w-2xl mx-auto">

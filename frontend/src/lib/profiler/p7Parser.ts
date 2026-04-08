@@ -126,9 +126,9 @@ export function parseP7File(text: string): P7Profile {
       if (key in HEADER_KEYS) {
         const field = HEADER_KEYS[key];
         if (NUMERIC_FIELDS.has(field)) {
-          (header as Record<string, unknown>)[field] = parseFloat(val);
+          (header as unknown as Record<string, unknown>)[field] = parseFloat(val);
         } else {
-          (header as Record<string, unknown>)[field] = val;
+          (header as unknown as Record<string, unknown>)[field] = val;
         }
         continue;
       }
@@ -243,9 +243,9 @@ export function parseP7File3D(text: string): P7Profile3D {
       if (key in HEADER_KEYS) {
         const field = HEADER_KEYS[key];
         if (NUMERIC_FIELDS.has(field)) {
-          (header as Record<string, unknown>)[field] = parseFloat(val);
+          (header as unknown as Record<string, unknown>)[field] = parseFloat(val);
         } else {
-          (header as Record<string, unknown>)[field] = val;
+          (header as unknown as Record<string, unknown>)[field] = val;
         }
         headerEnd = i;
       }

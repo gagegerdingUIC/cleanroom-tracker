@@ -29,7 +29,7 @@ export default function ProcessBuilder() {
   const selectedIds = useUIStore((s) => s.selectedWaferIds);
   const currentWaferId = useUIStore((s) => s.currentWaferId);
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
-  const clearSelection = useUIStore((s) => s.clearWaferSelection);
+
   const refreshWaferList = useUIStore((s) => s.refreshWaferList);
 
   const [steps, setSteps] = useState<BuilderStepData[]>([]);
@@ -40,7 +40,7 @@ export default function ProcessBuilder() {
   const [saveRecipeName, setSaveRecipeName] = useState("");
   const [showSave, setShowSave] = useState(false);
   const { getDefaults } = usePresets("photoresist");
-  const { getDefaults: getSputterDefaults, presetNames: sputterTargetNames } = usePresets("sputter_target");
+  const { getDefaults: getSputterDefaults } = usePresets("sputter_target");
 
   // Effective target: selected wafers, or fall back to currently viewed wafer
   const effectiveTargetIds = selectedIds.size > 0

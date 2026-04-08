@@ -73,6 +73,18 @@ export const TRION_GAS_NAMES = [
   "SiCl4", "SF6", "O2/CHF3/CClF2", "Cl2", "CF4/Ar/He-O2", "NF3", "H2", "CH4",
 ];
 
+/** Gas lines that share a physical MFC — user picks exactly one */
+export const TRION_GAS_OPTIONS: Record<number, string[]> = {
+  3: ["O2", "CHF3", "CClF2"],
+  5: ["CF4", "Ar", "He-O2"],
+};
+
+/** Default selection for each shared gas line */
+export const TRION_GAS_DEFAULTS: Record<number, string> = {
+  3: "O2",
+  5: "CF4",
+};
+
 export const SPUTTER_TARGETS = ["Nb", "Ti", "Co", "NbTi"];
 
 export const FALLBACK_RESISTS = ["AZ1518", "AZ1505", "P4330", "PMMA", "SU-8", "S1813", "LOR1A", "LOR10A"];
@@ -138,8 +150,8 @@ export function makeBlockFields(type: LithoBlockType): Record<string, string> {
         icpPower: "",
         riePower: "",
         processTime: "",
-        gas1Set: "", gas2Set: "", gas3Set: "", gas4Set: "",
-        gas5Set: "", gas6Set: "", gas7Set: "", gas8Set: "",
+        gas1Set: "", gas2Set: "", gas3Set: "", gas3Name: "O2", gas4Set: "",
+        gas5Set: "", gas5Name: "CF4", gas6Set: "", gas7Set: "", gas8Set: "",
         dcBias: "",
         pressureActual: "",
       };
@@ -511,11 +523,17 @@ export function stepToApiPayload(
         params.push({ param_name: "rie_power_w", value_raw: f.riePower, value_numeric: parseFloat(f.riePower), unit: "W" });
       if (f.processTime)
         params.push({ param_name: "process_time_s", value_raw: f.processTime, value_numeric: parseFloat(f.processTime), unit: "s" });
-      const gasNames = ["SiCl4", "SF6", "O2", "Cl2", "CF4", "NF3", "H2", "CH4"];
+      const gasNames = [
+        "SiCl4", "SF6",
+        f.gas3Name || "O2",   // shared line: O2 / CHF3 / CClF2
+        "Cl2",
+        f.gas5Name || "CF4",  // shared line: CF4 / Ar / He-O2
+        "NF3", "H2", "CH4",
+      ];
       for (let i = 1; i <= 8; i++) {
         const val = f[`gas${i}Set`];
         if (val)
-          params.push({ param_name: `gas${i}_${gasNames[i - 1].toLowerCase()}_sccm`, value_raw: val, value_numeric: parseFloat(val), unit: "sccm" });
+          params.push({ param_name: `gas${i}_${gasNames[i - 1].toLowerCase().replace("-", "")}_sccm`, value_raw: val, value_numeric: parseFloat(val), unit: "sccm" });
       }
       if (f.dcBias)
         params.push({ param_name: "dc_bias_v", value_raw: f.dcBias, value_numeric: parseFloat(f.dcBias), unit: "V" });
@@ -629,7 +647,18 @@ const API_TO_BUILDER_FIELD: Record<string, Record<string, string>> = {
   series_expose: { laser_nm: "laser", design_name: "designName", sweep_mode: "sweepMode", dose_start: "doseStart", dose_step: "doseStep", dose_count: "doseCount", defoc_start: "defocStart", defoc_step: "defocStep", defoc_count: "defocCount", best_dose: "bestDose", best_defoc: "bestDefoc", best_resist: "bestResist", best_spin_rpm: "bestSpinRpm" },
   flood_expose: { equipment: "equipment", duration_s: "duration" },
   develop: { chemical: "developer", ratio: "ratio", duration_s: "time", temp_c: "temp" },
-  trion_etch: { recipe_name: "recipeName", step_number: "stepNumber", pressure_set_mt: "pressureSet", icp_power_w: "icpPower", rie_power_w: "riePower", process_time_s: "processTime", gas1_sicl4_sccm: "gas1Set", gas2_sf6_sccm: "gas2Set", gas3_o2_sccm: "gas3Set", gas4_cl2_sccm: "gas4Set", gas5_cf4_sccm: "gas5Set", gas6_nf3_sccm: "gas6Set", gas7_h2_sccm: "gas7Set", gas8_ch4_sccm: "gas8Set", dc_bias_v: "dcBias", pressure_actual_mt: "pressureActual" },
+  trion_etch: {
+    recipe_name: "recipeName", step_number: "stepNumber", pressure_set_mt: "pressureSet",
+    icp_power_w: "icpPower", rie_power_w: "riePower", process_time_s: "processTime",
+    gas1_sicl4_sccm: "gas1Set", gas2_sf6_sccm: "gas2Set",
+    // Gas line 3 variants (shared MFC)
+    gas3_o2_sccm: "gas3Set", gas3_chf3_sccm: "gas3Set", gas3_cclf2_sccm: "gas3Set",
+    gas4_cl2_sccm: "gas4Set",
+    // Gas line 5 variants (shared MFC)
+    gas5_cf4_sccm: "gas5Set", gas5_ar_sccm: "gas5Set", gas5_heo2_sccm: "gas5Set",
+    gas6_nf3_sccm: "gas6Set", gas7_h2_sccm: "gas7Set", gas8_ch4_sccm: "gas8Set",
+    dc_bias_v: "dcBias", pressure_actual_mt: "pressureActual",
+  },
   sputter: { target: "target", base_pressure_torr: "basePressure", chamber_pressure_mtorr: "chamberPressure", argon_flow_sccm: "argonFlow", nitrogen_flow_sccm: "nitrogenFlow", rf_power_w: "rfPower", dc_bias_v: "dcBias", avg_reflected_power_w: "reflectedPower", substrate_temp_c: "substrateTemp", preclean_time_min: "precleanTime", motor_speed: "motorSpeed", deposition_time_min: "depositionTime" },
   step_height: { instrument: "instrument", intended_value: "intendedValue", unit: "unit" },
 };
@@ -648,6 +677,22 @@ export function apiStepToBuilderStep(step: ProcessStep): BuilderStepData | null 
     const builderField = fieldMap[pv.param_name];
     if (builderField) {
       fields[builderField] = pv.value_raw;
+    }
+  }
+
+  // Special case: infer selected gas name for shared MFC lines when loading from API
+  if (blockType === "trion_etch") {
+    for (const pv of step.parameter_values) {
+      if (pv.param_name.startsWith("gas3_") && pv.param_name.endsWith("_sccm")) {
+        const gasId = pv.param_name.replace("gas3_", "").replace("_sccm", "");
+        const nameMap: Record<string, string> = { o2: "O2", chf3: "CHF3", cclf2: "CClF2" };
+        if (nameMap[gasId]) fields.gas3Name = nameMap[gasId];
+      }
+      if (pv.param_name.startsWith("gas5_") && pv.param_name.endsWith("_sccm")) {
+        const gasId = pv.param_name.replace("gas5_", "").replace("_sccm", "");
+        const nameMap: Record<string, string> = { cf4: "CF4", ar: "Ar", heo2: "He-O2" };
+        if (nameMap[gasId]) fields.gas5Name = nameMap[gasId];
+      }
     }
   }
 

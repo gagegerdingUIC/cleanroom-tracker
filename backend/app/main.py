@@ -60,3 +60,25 @@ app.include_router(carriers_router)
 @app.get("/health")
 def health_check():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+# --- Serve bundled frontend (only when the built files exist) ---
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+_frontend_dir = Path(settings.FRONTEND_DIR)
+if _frontend_dir.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_frontend_dir / "assets")),
+        name="static-assets",
+    )
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the React SPA — non-API paths return index.html."""
+        file_path = _frontend_dir / full_path
+        if file_path.is_file() and ".." not in full_path:
+            return FileResponse(str(file_path))
+        return FileResponse(str(_frontend_dir / "index.html"))

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Machine, MachineParameterDefinition, ProcessStep, StepParameterValue } from "../types";
+import type { Machine, MachineParameterDefinition, ProcessStep } from "../types";
 import { toLocalInput, cstToISO } from "../utils/datetime";
 import DateTimeInput from "../components/DateTimeInput";
 import MachineParamField from "../components/MachineParamField";

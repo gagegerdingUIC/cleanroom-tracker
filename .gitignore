@@ -26,5 +26,11 @@ frontend/dist/
 Thumbs.db
 .DS_Store
 
+# PyInstaller build artifacts
+backend/dist/
+backend/build/
+backend/frontend_dist/
+*.spec
+
 # Claude
 .claude/

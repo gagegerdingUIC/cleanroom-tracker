@@ -5,7 +5,6 @@ import type { Measurement, MeasurementPoint, ProcessStep } from "../../types";
 import WaferMap from "./WaferMap";
 import {
   type AlignmentPair,
-  type SimilarityTransform,
   computeTransform,
   applyTransform,
   computeResidualError,

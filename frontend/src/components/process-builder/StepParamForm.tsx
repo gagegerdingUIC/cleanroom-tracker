@@ -10,6 +10,7 @@ import {
   SWEEP_MODES,
   SPUTTER_TARGETS,
   TRION_GAS_NAMES,
+  TRION_GAS_OPTIONS,
   FALLBACK_RESISTS,
   FALLBACK_DEVELOPERS,
   isSonication,
@@ -168,7 +169,7 @@ function ExposeForm({ f, upd, resistOptions }: {
   );
 }
 
-/* ── Trion log parser ──────────────────────────────────── */
+/* ── Trion log/CSV parser ─────────────────────────────── */
 
 interface TrionLogStep {
   stepNum: number;
@@ -187,6 +188,7 @@ interface TrionLogData {
   startTime: string;
   username: string;
   steps: TrionLogStep[];
+  source: "log" | "csv";
 }
 
 function parseTrionLog(text: string): TrionLogData | null {
@@ -245,7 +247,172 @@ function parseTrionLog(text: string): TrionLogData | null {
     });
   }
 
-  return { recipeName, date, startTime, username, steps };
+  return { recipeName, date, startTime, username, steps, source: "log" };
+}
+
+/**
+ * Parse Trion CSV export (time-series columns exported from the tool's data logger).
+ * The CSV has paired (Time, Value) columns. We detect column meaning from the header
+ * labels and compute averages over the run to fill in what we can.
+ */
+function parseTrionCsv(text: string): TrionLogData | null {
+  const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim());
+  if (lines.length < 2) return null;
+
+  // Parse header — CSV uses quoted fields with commas
+  // e.g. Time,"(L), Dataset 1, Rf Power in W,MV",...
+  const headerRaw = lines[0];
+  const headers: string[] = [];
+  let inQuote = false;
+  let cur = "";
+  for (const ch of headerRaw) {
+    if (ch === '"') { inQuote = !inQuote; continue; }
+    if (ch === "," && !inQuote) { headers.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  headers.push(cur.trim());
+
+  // Map header labels to column indices. Each parameter has a Time column followed
+  // by a value column. We want the value columns.
+  interface ColInfo { index: number; label: string; }
+  const colMap: Record<string, ColInfo> = {};
+
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i].toLowerCase();
+    if (h === "time") continue; // skip time columns
+    if (h.includes("rf reflected power") || h.includes("rf reflected")) {
+      colMap["rfReflected"] = { index: i, label: headers[i] };
+    } else if (h.includes("rf power") || (h.includes("rf") && h.includes("power") && !h.includes("icp") && !h.includes("reflected"))) {
+      colMap["rfPower"] = { index: i, label: headers[i] };
+    } else if (h.includes("dc bias")) {
+      colMap["dcBias"] = { index: i, label: headers[i] };
+    } else if (h.includes("icp power") || (h.includes("icp") && h.includes("power") && !h.includes("reflected"))) {
+      colMap["icpPower"] = { index: i, label: headers[i] };
+    } else if (h.includes("icp reflected")) {
+      colMap["icpReflected"] = { index: i, label: headers[i] };
+    } else if (h.includes("pressure")) {
+      colMap["pressure"] = { index: i, label: headers[i] };
+    }
+  }
+
+  // Need at least one meaningful column
+  if (Object.keys(colMap).length === 0) return null;
+
+  // Parse data rows
+  const rows: number[][] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = line.split(",").map((v) => parseFloat(v.trim()));
+    if (vals.some((v) => !isNaN(v))) rows.push(vals);
+  }
+  if (rows.length === 0) return null;
+
+  // Compute averages for each detected column
+  const avg = (colKey: string): number => {
+    const info = colMap[colKey];
+    if (!info) return 0;
+    const valid = rows.map((r) => r[info.index]).filter((v) => !isNaN(v));
+    if (valid.length === 0) return 0;
+    return valid.reduce((s, v) => s + v, 0) / valid.length;
+  };
+
+  // Process time = last time value minus first time value
+  // Find a time column (the one before rfPower, or the first "Time" column)
+  let timeColIdx = 0; // default to first column
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase() === "time") { timeColIdx = i; break; }
+  }
+  const timeVals = rows.map((r) => r[timeColIdx]).filter((v) => !isNaN(v));
+  const processTime = timeVals.length >= 2
+    ? timeVals[timeVals.length - 1] - timeVals[0]
+    : 0;
+
+  const fmt = (v: number) => v === 0 ? "" : String(Math.round(v * 100) / 100);
+
+  const step: TrionLogStep = {
+    stepNum: 1,
+    pressureSet: "",
+    pressureActual: fmt(avg("pressure")),
+    icpPower: fmt(avg("icpPower")),
+    riePower: fmt(avg("rfPower")),
+    processTime: fmt(processTime),
+    gasSet: ["", "", "", "", "", "", "", ""],
+    dcBias: fmt(avg("dcBias")),
+  };
+
+  return {
+    recipeName: "",
+    date: "",
+    startTime: "",
+    username: "",
+    steps: [step],
+    source: "csv",
+  };
+}
+
+/** Try both parsers — .log first, then CSV */
+function parseTrionFile(text: string, fileName: string): TrionLogData | null {
+  // If it looks like a .log file (tab-separated with header structure), try that first
+  if (fileName.toLowerCase().endsWith(".log") || text.includes("\t")) {
+    const logResult = parseTrionLog(text);
+    if (logResult) return logResult;
+  }
+  // Try CSV
+  const csvResult = parseTrionCsv(text);
+  if (csvResult) return csvResult;
+  // Fallback: try .log parser anyway
+  return parseTrionLog(text);
+}
+
+interface GasEntry {
+  index: number;
+  lineNum: number;
+  name: string;
+  options: string[] | null;
+  fieldKey: string;
+  nameKey: string | null;
+  value: string;
+}
+
+function renderGasGrid(
+  gases: GasEntry[],
+  upd: (field: string, value: string) => void,
+) {
+  return (
+    <div className="grid grid-cols-4 gap-2">
+      {gases.map((g) => (
+        <div key={g.index}>
+          {g.options ? (
+            <div className="flex items-center gap-0.5 mb-0.5">
+              {g.options.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => g.nameKey && upd(g.nameKey, opt)}
+                  className={`px-1 py-0 rounded text-[10px] leading-tight border ${
+                    g.name === opt
+                      ? "bg-blue-100 border-blue-400 text-blue-700 font-medium"
+                      : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600"
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <label className={labelClass}>{g.name}</label>
+          )}
+          <input
+            className={inputClass}
+            type="number"
+            value={g.value}
+            onChange={(e) => upd(g.fieldKey, e.target.value)}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function TrionEtchForm({ f, upd }: {
@@ -260,9 +427,9 @@ function TrionEtchForm({ f, upd }: {
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    const parsed = parseTrionLog(text);
+    const parsed = parseTrionFile(text, file.name);
     if (!parsed || parsed.steps.length === 0) {
-      alert("Could not parse Trion log file. Make sure it's a .log file from the Trion RIE/ICP.");
+      alert("Could not parse Trion file. Accepts .log (tab-separated) or .csv exports from the Trion RIE/ICP.");
       return;
     }
     setLogData(parsed);
@@ -289,20 +456,26 @@ function TrionEtchForm({ f, upd }: {
     upd("dcBias", step.dcBias);
   };
 
-  // Which gases are in use (non-empty set value)
-  const activeGases = Array.from({ length: 8 }, (_, i) => ({
-    index: i,
-    name: TRION_GAS_NAMES[i],
-    fieldKey: `gas${i + 1}Set`,
-    value: f[`gas${i + 1}Set`] || "",
-  })).filter((g) => g.value !== "");
+  /** Resolve display name for a gas line — uses selected name for shared MFC lines */
+  const gasDisplayName = (lineIndex: number): string => {
+    const lineNum = lineIndex + 1; // 1-indexed
+    if (lineNum === 3) return f.gas3Name || "O2";
+    if (lineNum === 5) return f.gas5Name || "CF4";
+    return TRION_GAS_NAMES[lineIndex];
+  };
 
-  const inactiveGases = Array.from({ length: 8 }, (_, i) => ({
+  // Which gases are in use (non-empty set value)
+  const allGases = Array.from({ length: 8 }, (_, i) => ({
     index: i,
-    name: TRION_GAS_NAMES[i],
+    lineNum: i + 1,
+    name: gasDisplayName(i),
+    options: TRION_GAS_OPTIONS[i + 1] || null, // non-null for shared lines
     fieldKey: `gas${i + 1}Set`,
+    nameKey: i + 1 === 3 ? "gas3Name" : i + 1 === 5 ? "gas5Name" : null,
     value: f[`gas${i + 1}Set`] || "",
-  })).filter((g) => g.value === "");
+  }));
+  const activeGases = allGases.filter((g) => g.value !== "");
+  const inactiveGases = allGases.filter((g) => g.value === "");
 
   return (
     <div className="space-y-2">
@@ -311,7 +484,7 @@ function TrionEtchForm({ f, upd }: {
         <input
           ref={fileRef}
           type="file"
-          accept=".log"
+          accept=".log,.csv"
           className="hidden"
           onChange={handleFileUpload}
         />
@@ -320,11 +493,17 @@ function TrionEtchForm({ f, upd }: {
           onClick={() => fileRef.current?.click()}
           className="w-full border border-dashed border-gray-300 rounded px-3 py-2 text-xs text-gray-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
         >
-          Upload Trion .log file to auto-fill
+          Upload Trion .log or .csv to auto-fill
         </button>
       </div>
 
       {/* Step picker from log */}
+      {logData?.source === "csv" && (
+        <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          CSV import: filled power, DC bias &amp; time. Gas flows and pressure need manual entry.
+        </div>
+      )}
+
       {logData && logData.steps.length > 1 && (
         <div className="bg-blue-50 border border-blue-200 rounded p-2">
           <div className="text-xs font-medium text-blue-700 mb-1">
@@ -411,54 +590,18 @@ function TrionEtchForm({ f, upd }: {
       {/* Gas flows — show active first, then collapsible inactive */}
       <div>
         <div className="text-xs font-medium text-gray-600 mb-1">Gas Flows (sccm)</div>
-        <div className="grid grid-cols-4 gap-2">
-          {activeGases.map((g) => (
-            <div key={g.index}>
-              <label className={labelClass}>{g.name}</label>
-              <input
-                className={inputClass}
-                type="number"
-                value={g.value}
-                onChange={(e) => upd(g.fieldKey, e.target.value)}
-              />
-            </div>
-          ))}
-        </div>
+        {renderGasGrid(activeGases, upd)}
         {inactiveGases.length > 0 && activeGases.length > 0 && (
           <details className="mt-1">
             <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">
               + {inactiveGases.length} more gases
             </summary>
-            <div className="grid grid-cols-4 gap-2 mt-1">
-              {inactiveGases.map((g) => (
-                <div key={g.index}>
-                  <label className={labelClass}>{g.name}</label>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    value={g.value}
-                    onChange={(e) => upd(g.fieldKey, e.target.value)}
-                  />
-                </div>
-              ))}
+            <div className="mt-1">
+              {renderGasGrid(inactiveGases, upd)}
             </div>
           </details>
         )}
-        {activeGases.length === 0 && (
-          <div className="grid grid-cols-4 gap-2">
-            {Array.from({ length: 8 }, (_, i) => (
-              <div key={i}>
-                <label className={labelClass}>{TRION_GAS_NAMES[i]}</label>
-                <input
-                  className={inputClass}
-                  type="number"
-                  value={f[`gas${i + 1}Set`]}
-                  onChange={(e) => upd(`gas${i + 1}Set`, e.target.value)}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+        {activeGases.length === 0 && renderGasGrid(allGases, upd)}
       </div>
 
       {/* Readbacks */}
